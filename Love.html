@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rising Particle Heart</title>
+<style>
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #000;
+}
+
+canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+</style>
+</head>
+<body>
+<canvas id="heart"></canvas>
+
+<script>
+const canvas = document.getElementById("heart");
+const ctx = canvas.getContext("2d", { alpha: false });
+
+let W, H, cx, cy, scale;
+let particles = [];
+let stars = [];
+let outline = [];
+
+const PARTICLE_COUNT = 1500;
+const STAR_COUNT = 65;
+const FORMATION_TIME = 5000;
+const TRACE_START = 5000;
+const TRACE_DURATION = 2000;
+const LOOP_TIME = 12000;
+
+let startTime = performance.now();
+let lastTime = startTime;
+
+const TAU = Math.PI * 2;
+
+const colors = [
+    "#ff1744",
+    "#ff2d55",
+    "#ff4d80",
+    "#ff789c",
+    "#ffb6c9",
+    "#ffffff"
+];
+
+function random(min, max) {
+    return Math.random() * (max - min) + min;
+}
+
+function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+}
+
+function easeOutCubic(t) {
+    return 1 - Math.pow(1 - t, 3);
+}
+
+// Heart outline coordinates
+function heartPoint(t) {
+    const x = 16 * Math.pow(Math.sin(t), 3);
+    const y =
+        13 * Math.cos(t)
+        - 5 * Math.cos(2 * t)
+        - 2 * Math.cos(3 * t)
+        - Math.cos(4 * t);
+
+    return { x, y: -y };
+}
+
+function createOutline() {
+    outline = [];
+
+    for (let i = 0; i < 600; i++) {
+        outline.push(heartPoint(i / 600 * TAU));
+    }
+}
+
+function pointInHeart(x, y) {
+    let inside = false;
+
+    for (
+        let i = 0, j = outline.length - 1;
+        i < outline.length;
+        j = i++
+    ) {
+        const a = outline[i];
+        const b = outline[j];
+
+        const intersects =
+            ((a.y > y) !== (b.y > y)) &&
+            (x < (b.x - a.x) * (y - a.y) /
+            (b.y - a.y) + a.x);
+
+        if (intersects) inside = !inside;
+    }
+
+    return inside;
+}
+
+function randomHeartPoint() {
+    while (true) {
+        const x = random(-16, 16);
+        const y = random(-14, 14);
+
+        if (pointInHeart(x, y)) {
+            return { x, y };
+        }
+    }
+}
+
+// Every particle begins below the screen and rises into place
+function makeParticle() {
+    const isOutline = Math.random() < 0.3;
+
+    const target = isOutline
+        ? heartPoint(random(0, TAU))
+        : randomHeartPoint();
+
+    // Start at a random position along the bottom edge
+    const startX = random(-W * 0.48, W * 0.48) / scale;
+    const startY = (H / 2 + random(30, 180)) / scale;
+
+    return {
+        startX,
+        startY,
+        targetX: target.x,
+        targetY: target.y,
+
+        delay: random(0, 0.48),
+        size: isOutline
+            ? random(0.8, 1.8)
+            : random(0.45, 1.4),
+
+        color: colors[Math.floor(Math.random() * colors.length)],
+        alpha: random(0.55, 1),
+        phase: random(0, TAU),
+        speed: random(0.7, 1.5),
+
+        isOutline,
+        sparkle: Math.random() < 0.075,
+
+        // Each particle curves gently as it rises
+        arc: random(-3, 3),
+        curveDirection: Math.random() < 0.5 ? -1 : 1
+    };
+}
+
+function createParticles() {
+    particles = [];
+
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+        particles.push(makeParticle());
+    }
+}
+
+function createStars() {
+    stars = [];
+
+    for (let i = 0; i < STAR_COUNT; i++) {
+        stars.push({
+            x: Math.random(),
+            y: Math.random(),
+            size: random(0.4, 1.3),
+            alpha: random(0.12, 0.5),
+            phase: random(0, TAU),
+            speed: random(0.4, 1.2)
+        });
+    }
+}
+
+function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+
+    W = window.innerWidth;
+    H = window.innerHeight;
+
+    canvas.width = Math.floor(W * dpr);
+    canvas.height = Math.floor(H * dpr);
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    cx = W / 2;
+    cy = H / 2;
+
+    // Fixed heart size; no animation scaling
+    scale = Math.min(W / 39, H / 43);
+
+    createOutline();
+    createStars();
+    createParticles();
+}
+
+function drawStars(time) {
+    for (const star of stars) {
+        const twinkle = 0.5 + 0.5 * Math.sin(
+            time * 0.001 * star.speed + star.phase
+        );
+
+        ctx.globalAlpha = star.alpha * twinkle;
+        ctx.fillStyle = "#ffb8d0";
+
+        ctx.beginPath();
+        ctx.arc(
+            star.x * W,
+            star.y * H,
+            star.size,
+            0,
+            TAU
+        );
+        ctx.fill();
+    }
+
+    ctx.globalAlpha = 1;
+}
+
+function drawAmbientGlow() {
+    const gradient = ctx.createRadialGradient(
+        cx, cy, scale,
+        cx, cy, scale * 24
+    );
+
+    gradient.addColorStop(0, "rgba(255, 0, 45, 0.075)");
+    gradient.addColorStop(0.35, "rgba(210, 0, 50, 0.035)");
+    gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
+
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, W, H);
+}
+
+function screenX(x) {
+    return cx + x * scale;
+}
+
+function screenY(y) {
+    return cy + y * scale;
+}
+
+// Small glowing spark at the start of the animation
+function drawCore(progress) {
+    const intensity = 1 - progress * 0.8;
+    const radius = 2 + intensity * 5;
+
+    const gradient = ctx.createRadialGradient(
+        cx, cy, 0,
+        cx, cy, radius * 4
+    );
+
+    gradient.addColorStop(0, "rgba(255,255,255,0.95)");
+    gradient.addColorStop(0.2, "rgba(255,80,120,0.8)");
+    gradient.addColorStop(1, "rgba(255,0,50,0)");
+
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius * 4, 0, TAU);
+    ctx.fill();
+
+    ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius * 0.45, 0, TAU);
+    ctx.fill();
+}
+
+// Particles rise from the bottom and settle into a fixed heart
+function drawParticles(time, formation) {
+    for (const p of particles) {
+        const localProgress = clamp(
+            (formation - p.delay) / (1 - p.delay),
+            0,
+            1
+        );
+
+        const eased = easeOutCubic(localProgress);
+
+        // Smooth upward movement with a subtle curved path
+        const curve = Math.sin(eased * Math.PI) * p.arc;
+
+        const x =
+            p.startX +
+            (p.targetX - p.startX) * eased +
+            curve * p.curveDirection;
+
+        const y =
+            p.startY +
+            (p.targetY - p.startY) * eased;
+
+        const shimmer = 0.78 + 0.22 * Math.sin(
+            time * 0.002 * p.speed + p.phase
+        );
+
+        const sparkle = p.sparkle
+            ? 0.65 + 0.35 * Math.sin(
+                time * 0.006 + p.phase
+            )
+            : 1;
+
+        const alpha =
+            p.alpha *
+            shimmer *
+            sparkle *
+            Math.min(1, localProgress * 2.5);
+
+        const px = screenX(x);
+        const py = screenY(y);
+
+        const size = p.size * (0.75 + 0.25 * shimmer);
+
+        ctx.globalAlpha = alpha;
+
+        if (p.sparkle && localProgress > 0.7) {
+            ctx.shadowBlur = 7;
+            ctx.shadowColor = p.color;
+        } else {
+            ctx.shadowBlur = 0;
+        }
+
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(px, py, size, 0, TAU);
+        ctx.fill();
+
+        // Tiny occasional cross-shaped sparkles
+        if (
+            p.sparkle &&
+            shimmer > 0.94 &&
+            localProgress > 0.8
+        ) {
+            ctx.globalAlpha = alpha * 0.55;
+            ctx.fillRect(px - 3, py - 0.35, 6, 0.7);
+            ctx.fillRect(px - 0.35, py - 3, 0.7, 6);
+        }
+    }
+
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
+}
+
+// Trace the heart outline with a travelling light
+function drawTrace(progress) {
+    if (progress <= 0) return;
+
+    const total = outline.length;
+    const head = Math.floor(clamp(progress, 0, 1) * total);
+
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
+    // The outline stays at its original, fixed coordinates
+    ctx.beginPath();
+
+    for (let i = 0; i <= head; i++) {
+        const p = outline[i];
+        const x = screenX(p.x);
+        const y = screenY(p.y);
+
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+    }
+
+    ctx.strokeStyle = "rgba(255, 65, 110, 0.18)";
+    ctx.lineWidth = 2.2;
+    ctx.stroke();
+
+    // Bright moving trace
+    const tailLength = 38;
+    const tailStart = Math.max(0, head - tailLength);
+
+    ctx.beginPath();
+
+    for (let i = tailStart; i <= head; i++) {
+        const p = outline[i];
+        const x = screenX(p.x);
+        const y = screenY(p.y);
+
+        if (i === tailStart) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+    }
+
+    ctx.strokeStyle = "#ffb2cb";
+    ctx.lineWidth = 1.5;
+    ctx.shadowColor = "#ff164e";
+    ctx.shadowBlur = 12;
+    ctx.stroke();
+
+    // Bright tip of the tracing light
+    if (head < total) {
+        const p = outline[head % total];
+        const x = screenX(p.x);
+        const y = screenY(p.y);
+
+        const gradient = ctx.createRadialGradient(
+            x, y, 0,
+            x, y, 12
+        );
+
+        gradient.addColorStop(0, "rgba(255,255,255,1)");
+        gradient.addColorStop(0.25, "rgba(255,90,140,0.85)");
+        gradient.addColorStop(1, "rgba(255,0,50,0)");
+
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(x, y, 12, 0, TAU);
+        ctx.fill();
+    }
+
+    ctx.restore();
+}
+
+function animate(now) {
+    const elapsed = now - startTime;
+    const loopTime = elapsed % LOOP_TIME;
+
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, W, H);
+
+    drawStars(now);
+    drawAmbientGlow();
+
+    const formation = clamp(
+        loopTime / FORMATION_TIME,
+        0,
+        1
+    );
+
+    // Fade out at the end before starting the next assembly
+    let fade = 1;
+
+    if (loopTime > LOOP_TIME - 1000) {
+        fade = 1 - clamp(
+            (loopTime - (LOOP_TIME - 1000)) / 1000,
+            0,
+            1
+        );
+    }
+
+    ctx.save();
+    ctx.globalAlpha = fade;
+
+    if (loopTime < FORMATION_TIME) {
+        drawCore(formation);
+    }
+
+    // No heartbeat scaling or movement
+    drawParticles(now, formation);
+
+    const traceProgress = clamp(
+        (loopTime - TRACE_START) / TRACE_DURATION,
+        0,
+        1
+    );
+
+    drawTrace(traceProgress);
+
+    ctx.restore();
+
+    requestAnimationFrame(animate);
+}
+
+window.addEventListener("resize", resize);
+
+resize();
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>
